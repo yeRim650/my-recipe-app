@@ -4,7 +4,10 @@ from sqlmodel import Session
 
 from app.db import get_session
 
-router = APIRouter()
+router = APIRouter(
+    prefix="/api/rag",
+    tags=["rag"],
+)
 
 @router.post("/recommend")
 def recommend(ingredients: List[str], session: Session = Depends(get_session)):

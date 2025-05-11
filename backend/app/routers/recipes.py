@@ -5,7 +5,10 @@ from sqlmodel import Session, select
 from app.db import get_session
 from app.models import Recipe
 
-router = APIRouter()
+router = APIRouter(
+    prefix="/api/recipes",
+    tags=["recipes"],
+)
 
 @router.get("/", response_model=List[Recipe])
 def list_recipes(session: Session = Depends(get_session)):

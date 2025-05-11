@@ -61,7 +61,8 @@ graph LR
   vDB[(VectorDB)]
   ExtAPI[(외부 레시피 Open API)]
   LLM[(OpenAI API)]
-  Redis[(Redis)] %% for future Celery
+  %% Redis for future Celery
+  Redis[(Redis)]
 
   FE -->|REST /api/users<br>/user_ingredients| API_Server
   API_Server --> DB

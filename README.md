@@ -114,20 +114,20 @@ erDiagram
       ts     created_at
       ts     updated_at
     }
-
+    INGREDIENT_RECIPE_MAPPING {
+        int    ingredientId PK
+        int    recipeId     PK
+    }
     INGREDIENT_MASTER {
-      int    id PK
-      string name   UNIQUE
-      ts     created_at
+        int    id PK
+        int    name
+        ts     createdAt
     }
-
     USER_INGREDIENTS {
-      int    user_id         PK
-      int    ingredient_id   PK
-      float  quantity
+      int    user_id PK
+      string name   PK
       ts     created_at
     }
-
     RECIPES {
       int    id PK
       string name
@@ -142,49 +142,42 @@ erDiagram
       ts     created_at
       ts     updated_at
     }
-
-    INGREDIENT_RECIPE_MAPPING {
-      int    ingredient_id   PK
-      int    recipe_id       PK
-    }
-
     INSTRUCTIONS {
       int    id PK
       int    recipe_id
       int    step
       text   instruction
     }
-
     USER_RECIPES {
-      int    user_id   PK
-      int    recipe_id PK
+      int  userId PK
+      int  recipeId PK
     }
-
     RECIPE_EMBEDDINGS {
       int    recipe_id PK
       vector embedding
     }
-
-    USERS ||--o{ USER_INGREDIENTS               : has
-    INGREDIENT_MASTER ||--o{ USER_INGREDIENTS    : selected
-    INGREDIENT_MASTER ||--o{ INGREDIENT_RECIPE_MAPPING : maps_to
-    RECIPES ||--o{ INGREDIENT_RECIPE_MAPPING    : uses
-    RECIPES ||--o{ INSTRUCTIONS                  : steps
-    RECIPES ||--o{ RECIPE_EMBEDDINGS             : has
-    USERS ||--o{ USER_RECIPES                   : favorites
-    RECIPES ||--o{ USER_RECIPES                  : saved_by
+    USERS ||--o{ USER_INGREDIENTS               : "has"
+    INGREDIENT_MASTER ||--o{ USER_INGREDIENTS    : "selected"
+    INGREDIENT_MASTER ||--o{ INGREDIENT_RECIPE_MAPPING : "maps_to"
+    RECIPES ||--o{ INGREDIENT_RECIPE_MAPPING    : "uses"
+    RECIPES ||--o{ INSTRUCTIONS                 : "steps"
+    RECIPES ||--o{ RECIPE_EMBEDDINGS            : "has"
+    USERS ||--o{ USER_RECIPES                  : "favorites"
+    RECIPES ||--o{ USER_RECIPES                 : "saved_by"
 ```
 
-- **제약·인덱스**  
-  - `users.username`, `users.email` UNIQUE  
-  - `user_ingredients` PK(user_id, name)  
-  - `recipes.name`, `recipes.recipe_hash` UNIQUE  
-  - `ingredients` UNIQUE(recipe_id, name)  
-  - `instructions` UNIQUE(recipe_id, step)  
-  - `user_recipes` PK(user_id, recipe_id)  
-  - `recipe_embeddings` PK(recipe_id)  
-  - 인덱스: `recipes(category)`, `ingredients(name)`  
+- **제약·인덱스** (모델에 걸린 Unique/PK) 
+  - USER: username, email   UNIQUE
+  - USER_INGREDIENT: PK(userId, ingredientId)
+  - RECIPE: name, recipeHash   UNIQUE
+  - INGREDIENT_RECIPE_MAPPING: PK(ingredientId, recipeId)
+  - INSTRUCTION: UNIQUE(recipeId, step)
+  - USER_RECIPE: PK(userId, recipeId)
+  - RECIPE_EMBEDDING: PK(recipeId)
 
+- 물리 인덱스 (보조 인덱스)
+  - INDEX recipes(category)
+  - INDEX ingredients(name)
 ---
 
 ### 2.4. 시퀀스 다이어그램

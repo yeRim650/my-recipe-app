@@ -1,12 +1,15 @@
 from logging.config import fileConfig
 import os
 
+from dotenv import load_dotenv
+load_dotenv()  # .env 로드
+
 from sqlalchemy import pool
 from alembic import context
 
 # our app’s MetaData and engine
 from sqlmodel import SQLModel
-from app.db import engine            # 경로는 실제 여러분 프로젝트 구조에 맞게 조정
+from app.db import engine            # 실제 경로에 맞게 조정
 from app.models import *             # SQLModel로 정의한 모델들이 있는 모듈
 
 # Alembic Config 객체
@@ -26,6 +29,8 @@ def run_migrations_offline() -> None:
         "DATABASE_URL",
         config.get_main_option("sqlalchemy.url")
     )
+    config.set_main_option("sqlalchemy.url", url)
+    
     context.configure(
         url=url,
         target_metadata=target_metadata,

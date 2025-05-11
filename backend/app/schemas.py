@@ -3,6 +3,7 @@ from datetime import datetime
 from sqlmodel import SQLModel
 from typing import Optional
 
+# ───────────────────────────────────────────────────────────────────────────────
 class UserBase(SQLModel):
     username: str
     email:    str
@@ -18,15 +19,51 @@ class UserRead(UserBase):
     updated_at:   datetime
 
     class Config:
-        orm_mode = True
-
+        from_attributes = True  # orm_mode 대신 이 옵션 사용
+# ───────────────────────────────────────────────────────────────────────────────
 class UserIngredientCreate(SQLModel):
     user_id: int
     name:    str
     quantity: float
 
-class UserIngredientRead(UserIngredientCreate):
+class UserIngredientRead(SQLModel):
+    user_id:    int
+    name:       str
+    quantity:   float
     created_at: datetime
+
+    class Config:
+        orm_mode = True
+# ───────────────────────────────────────────────────────────────────────────────
+class IngredientMasterRead(SQLModel):
+    """
+    Ingredient.master 를 직렬화할 때 쓰는 DTO
+    """
+    id:   int
+    name: str
+
+    class Config:
+        orm_mode = True
+# ───────────────────────────────────────────────────────────────────────────────
+class IngredientCreate(SQLModel):
+    """
+    ingredients 테이블에 INSERT 할 때 쓰는 스키마
+    """
+    recipe_id: int
+    master_id: int
+    quantity:  Optional[float] = None
+    unit:      Optional[str]   = None
+
+class IngredientRead(SQLModel):
+    """
+    ingredients 테이블에서 SELECT 결과 반환할 때 쓰는 스키마
+    """
+    id:         int
+    recipe_id:  int
+    master_id:  int
+    quantity:   Optional[float]
+    unit:       Optional[str]
+    master:     IngredientMasterRead
 
     class Config:
         orm_mode = True

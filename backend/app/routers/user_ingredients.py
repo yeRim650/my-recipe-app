@@ -167,6 +167,7 @@ def process_new_ingredient(user_id: int, name: str):
                     recipe = Recipe(
                         name        = title,
                         category    = item.get("RCP_PAT2")  or item.get("PRDLST_DCNM"),
+                        method      = item.get("RCP_WAY2"),
                         description = item.get("RCP_PARTS_DTLS") or item.get("PIC_URL",""),
                         calories    = item.get("INFO_NA")   or item.get("NUTR_CONT1"),
                         protein     = item.get("INFO_PRO")  or item.get("NUTR_CONT2"),

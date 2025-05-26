@@ -4,7 +4,7 @@ from typing import Optional, List
 from datetime import datetime
 
 from sqlmodel import SQLModel, Field, Relationship
-from sqlalchemy import Column, String, JSON, DateTime, Integer, Float, UniqueConstraint
+from sqlalchemy import Column, String, JSON, DateTime, Integer, Float, UniqueConstraint, Text
 from sqlalchemy.sql import func
 
 
@@ -64,7 +64,11 @@ class Recipe(SQLModel, table=True):
     id:           Optional[int] = Field(default=None, primary_key=True)
     name:         str           = Field(sa_column=Column(String(255), unique=True, nullable=False))
     category:     Optional[str] = Field(default=None, sa_column=Column(String(100)))
-    description:  Optional[str]
+    method: Optional[str] = Field(default=None, sa_column=Column(String(100)))      # RCP_WAY2
+    description: str | None = Field(
+        default=None,
+        sa_column=Column(Text)      # ← VARCHAR → TEXT 로 확장
+    )
     calories:     Optional[int]
     protein:      Optional[int]
     carbs:        Optional[int]

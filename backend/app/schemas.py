@@ -20,6 +20,7 @@ class UserRead(UserBase):
 
     class Config:
         from_attributes = True  # orm_mode 대신 이 옵션 사용
+
 # ───────────────────────────────────────────────────────────────────────────────
 class UserIngredientCreate(SQLModel):
     user_id: int
@@ -33,7 +34,8 @@ class UserIngredientRead(SQLModel):
     created_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True  # orm_mode 대신 이 옵션 사용
+
 # ───────────────────────────────────────────────────────────────────────────────
 class IngredientMasterRead(SQLModel):
     """
@@ -43,7 +45,8 @@ class IngredientMasterRead(SQLModel):
     name: str
 
     class Config:
-        orm_mode = True
+        from_attributes = True  # orm_mode 대신 이 옵션 사용
+
 # ───────────────────────────────────────────────────────────────────────────────
 class IngredientCreate(SQLModel):
     """
@@ -66,4 +69,4 @@ class IngredientRead(SQLModel):
     master:     IngredientMasterRead
 
     class Config:
-        orm_mode = True
+        from_attributes = True  # orm_mode 대신 이 옵션 사용

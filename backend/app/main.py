@@ -26,7 +26,6 @@ app.add_middleware(
 def on_startup():
     init_db()
 
-# 각 라우터는 자체적으로 prefix와 tags를 선언했으므로
 app.include_router(users.router)
 app.include_router(user_ingredients.router)
 app.include_router(recipes.router)

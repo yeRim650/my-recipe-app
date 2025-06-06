@@ -117,7 +117,7 @@ def embed_new_recipes(batch: int = BATCH_SIZE):
             time.sleep(0.05)
 
 # ───────── 2) 사용자 맞춤 추천 ────────────────────────────
-def recommend_for_user(user_id: int, query: str, top_k: int = 5, boost: float = 0.2):
+def recommend_for_user(user_id: int, query: str, top_k: int = 10, boost: float = 0.2):
     with Session(engine) as db:
         fridge = [
             row[0] for row in db.exec(
@@ -130,6 +130,7 @@ def recommend_for_user(user_id: int, query: str, top_k: int = 5, boost: float = 
     qv = model.encode([query], normalize_embeddings=True)[0]
     resp = qc.query_points(COL, query=qv, using="vector", limit=40, with_payload=True)
 
+    # 1) score + recipe_id 리스트 만들기
     scored = []
     for p in resp.points:
         score = p.score + boost * sum(
@@ -137,14 +138,27 @@ def recommend_for_user(user_id: int, query: str, top_k: int = 5, boost: float = 
         )
         scored.append((score, p.payload["recipe_id"]))
 
-    top_ids = [rid for _, rid in sorted(scored, reverse=True)[:top_k]]
+    # 2) 내림차순 정렬
+    scored_sorted = sorted(scored, key=lambda x: x[0], reverse=True)
+
+    # 3) 중복을 제거하면서 top_k 개의 unique recipe_id 수집
+    unique_rids = []
+    seen = set()
+    for _, rid in scored_sorted:
+        if rid not in seen:
+            seen.add(rid)
+            unique_rids.append(rid)
+        if len(unique_rids) >= top_k:
+            break
+
+    # 4) DB에서 최종 레시피 조회 (고유 ID만 남아서 top_k 개가 된다)
     with Session(engine) as db:
-        return db.exec(select(Recipe).where(Recipe.id.in_(top_ids))).all()
+        return db.exec(select(Recipe).where(Recipe.id.in_(unique_rids))).all()
 
 # ───────── main ─────────────────────────────────────────
 if __name__ == "__main__":
     # reset_qdrant()
     embed_new_recipes()
 
-    for r in recommend_for_user(3, "ㅇ 요리", 10):
+    for r in recommend_for_user(1, "생선 요리", 10):
         print(f"- {r.id} | {r.name} | {r.method} | {r.category}")

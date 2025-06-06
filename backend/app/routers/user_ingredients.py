@@ -1,9 +1,7 @@
-# app/routers/user_ingredients.py
-
 import logging
 import os
 import re
-from typing import List, Tuple
+from typing import List, Tuple, Pattern              # ⬅ Pattern 추가
 from urllib.parse import quote
 
 import httpx
@@ -23,8 +21,37 @@ from app.models import (
 )
 from app.schemas import UserIngredientCreate, UserIngredientRead
 
-# RAG 임베딩 기능을 담당하는 함수
-from app.ragu_embedding import embed_and_upsert_single_recipe
+# 신규로 추가된 레시피를 한꺼번에 임베딩하는 함수
+from recipe_rag_pipeline import embed_new_recipes
+
+_PART_PATTERN: Pattern = re.compile(
+    r"""
+    ^(?P<name>[^\d]+?)\s+           # 재료명
+    (?P<number>\d+(?:\.\d+)?)       # 수량
+    (?P<unit>[^\d(][^(\s]*)?        # 단위(선택)
+    (?P<extra>\(.*\))?              # 괄호 설명(선택)
+    $""",
+    re.VERBOSE,
+)
+_ALLOWED_CHARS = re.compile(r"[^가-힣A-Za-z0-9\s]")  # 특수문자 제거용
+
+
+def _clean_name(raw: str) -> str:
+    """특수문자 제거 후, 마지막 공백 뒤 토큰만 반환."""
+    cleaned = _ALLOWED_CHARS.sub("", raw).strip()
+    return cleaned.rsplit(" ", 1)[-1]  # 공백 없으면 그대로
+
+
+def _parse_part(part: str) -> Tuple[str, float, str] | None:
+    """‘오이 1g’ 같은 한 파트 문자열을 (이름, 수량, 단위)로 파싱."""
+    if m := _PART_PATTERN.match(part):
+        name  = _clean_name(m.group("name"))
+        qty   = float(m.group("number"))
+        unit  = (m.group("unit") or "").strip()
+        extra = (m.group("extra") or "").strip()
+        return name, qty, f"{unit}{extra}" if extra else unit
+    return None
+
 
 logger = logging.getLogger("user_ingredients")
 logger.setLevel(logging.INFO)
@@ -40,32 +67,22 @@ SERVICE_ID = os.getenv("FOOD_SAFETY_SERVICE_ID")
 
 def parse_parts_dtls(text: str) -> List[Tuple[str, float, str]]:
     """
-    RCP_PARTS_DTLS 문자열에서 재료 목록을
-    [(재료명, 수량(숫자), 단위 문자열), …] 형태로 파싱합니다.
+    RCP_PARTS_DTLS 문자열을
+    [(재료명, 수량(float), 단위 문자열), …] 리스트로 변환.
+    - 재료명: 특수문자 제거 후, 공백이 있으면 마지막 토큰만 사용
     """
-    lines = text.split("\n")
-    if len(lines) < 2:
+    # 두 번째 줄(재료 목록) 확보
+    try:
+        _, parts_line, *_ = text.splitlines()
+    except ValueError:          # 줄이 2개 미만
         return []
-    parts = [p.strip() for p in lines[1].split(",") if p.strip()]
 
-    pattern = re.compile(
-        r"^(?P<name>[^\d]+?)\s+"
-        r"(?P<number>\d+(?:\.\d+)?)"
-        r"(?P<unit>[^\d(][^(\s]*)?"
-        r"(?P<extra>\(.*\))?$"
-    )
-    out: List[Tuple[str, float, str]] = []
-    for p in parts:
-        m = pattern.match(p)
-        if not m:
-            continue
-        name   = m.group("name").strip()
-        number = float(m.group("number"))
-        unit   = (m.group("unit") or "").strip()
-        extra  = (m.group("extra") or "").strip()
-        full_unit = f"{unit}{extra}" if extra else unit
-        out.append((name, number, full_unit))
-    return out
+    # 리스트 컴프리헨션 + 월러스( := )로 동시에 파싱·필터
+    return [
+        parsed
+        for part in map(str.strip, parts_line.split(","))
+        if part and (parsed := _parse_part(part))
+    ]
 
 
 @router.post(
@@ -128,8 +145,7 @@ def process_new_ingredient(user_id: int, name: str):
     식품안전나라 오픈API를 호출하여 관련 레시피(최대 10건)를 가져온 뒤:
 
       1) Recipe/IngredientMaster/Instruction 테이블에 반영
-      2) 신규 생성된 레시피 한 건씩 embed_and_upsert_single_recipe(recipe_id) 호출하여
-         Qdrant에 임베딩 업서트 및 RecipeEmbedding 테이블 저장
+      2) 신규 생성된 레시피를 모아서, embed_new_recipes()를 호출해 한꺼번에 임베딩 업서트
       3) UserRecipe 연결
     """
     logger.info(f"[BG] 시작: user_id={user_id}, name={name}")
@@ -141,16 +157,11 @@ def process_new_ingredient(user_id: int, name: str):
             f"/RCP_PARTS_DTLS={quote(name)}"
         )
 
-        # httpx.Client를 trust_env=True 로 생성하면,
-        # 시스템(Windows)의 HTTP_PROXY/HTTPS_PROXY 환경 변수를 자동으로 사용합니다.
-        # (프록시가 없으면 곧바로 huggingface 등 외부 요청 가능)
         with httpx.Client(timeout=10, trust_env=True) as client:
             resp = client.get(data_url)
 
-        # 로그 남기기
-        print(f"[BG] Data API URL   : {data_url}")
-        print(f"[BG] Data API Status: {resp.status_code}")
-        print(f"[BG] Data API Body  : {resp.text!r}")
+        logger.info(f"[BG] Data API URL   : {data_url}")
+        logger.info(f"[BG] Data API Status: {resp.status_code}")
 
         if resp.status_code != 200 or not resp.text.strip():
             logger.error(f"[BG] Data API 응답 이상: {resp.status_code}")
@@ -162,6 +173,7 @@ def process_new_ingredient(user_id: int, name: str):
         logger.info(f"[BG] '{name}' 조회된 아이템 수: {len(items)}")
 
         # 2) DB 처리
+        new_recipe_ids: List[int] = []
         with Session(engine) as db:
             # IngredientMaster 보장 (이미 위에서 만들었지만, 재확인)
             im = db.exec(
@@ -198,8 +210,9 @@ def process_new_ingredient(user_id: int, name: str):
                     db.refresh(recipe)
                     is_new = True
 
-                # 2-2) 신규 레시피인 경우에만 parts_dtls 파싱 후 IngredientRecipeMapping 삽입
+                # 2-2) 신규 레시피인 경우만 parts_dtls 파싱 및 IngredientRecipeMapping
                 if is_new:
+                    new_recipe_ids.append(recipe.id)
                     parts = parse_parts_dtls(item.get("RCP_PARTS_DTLS", ""))
                     for ing_name, _, _ in parts:
                         pm = db.exec(
@@ -222,7 +235,7 @@ def process_new_ingredient(user_id: int, name: str):
                                 ingredient_id = pm.id,
                             ))
 
-                # 2-3) MANUAL01~20을 step 1~20으로 저장, 빈 값이 연속 2번 나오면 중단
+                # 2-3) MANUAL01~20 → Instruction 저장
                 blank_count = 0
                 for i in range(1, 21):
                     key = f"MANUAL{i:02d}"
@@ -247,20 +260,11 @@ def process_new_ingredient(user_id: int, name: str):
                         if blank_count >= 2:
                             break
 
-                # 최종 커밋 (Instruction 매핑까지 한번에 반영)
+                # 2-4) 커밋 (Instruction 포함)
                 try:
                     db.commit()
                 except IntegrityError:
                     db.rollback()
-
-                # 2-4) 신규 생성된 레시피라면, 즉시 개별 임베딩 & Qdrant 업서트
-                if is_new:
-                    try:
-                        # recipe.id만 넘겨서, 해당 레시피 건을 임베딩 & 업서트
-                        embed_and_upsert_single_recipe(recipe.id)
-                        logger.info(f"[BG] 임베딩 완료: recipe_id={recipe.id}")
-                    except Exception:
-                        logger.exception(f"[BG] 임베딩 실패: recipe_id={recipe.id}")
 
                 # 2-5) UserRecipe 연결
                 ur = db.exec(
@@ -275,13 +279,18 @@ def process_new_ingredient(user_id: int, name: str):
                         user_id   = user_id,
                         recipe_id = recipe.id,
                     ))
+                    try:
+                        db.commit()
+                    except IntegrityError:
+                        db.rollback()
 
-                # Connection 관계만 추가해두고, 그 외 커밋은 나중에 한번만 해도 되지만
-                # 안전을 위해 여기서 커밋
-                try:
-                    db.commit()
-                except IntegrityError:
-                    db.rollback()
+        # 3) 새로 만들어진 레시피가 하나 이상 있다면, 한꺼번에 embed_new_recipes() 호출
+        if new_recipe_ids:
+            try:
+                embed_new_recipes()
+                logger.info(f"[BG] embed_new_recipes() 호출 완료: recipe_ids={new_recipe_ids}")
+            except Exception:
+                logger.exception("[BG] embed_new_recipes() 호출 중 예외 발생")
 
         logger.info(f"[BG] 완료: user_id={user_id}, name={name}")
 

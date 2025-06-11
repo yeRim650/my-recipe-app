@@ -1,7 +1,7 @@
 import logging
 import os
 import re
-from typing import List, Tuple, Pattern              # ⬅ Pattern 추가
+from typing import List, Tuple, Pattern
 from urllib.parse import quote
 
 import httpx
@@ -20,9 +20,15 @@ from app.models import (
     UserRecipe,
 )
 from app.schemas import UserIngredientCreate, UserIngredientRead
-
-# 신규로 추가된 레시피를 한꺼번에 임베딩하는 함수
 from recipe_rag_pipeline import embed_new_recipes
+
+router = APIRouter(
+    prefix="/api/user_ingredients",
+    tags=["user_ingredients"],
+)
+
+API_KEY = os.getenv("FOOD_SAFETY_API_KEY")
+SERVICE_ID = os.getenv("FOOD_SAFETY_SERVICE_ID")
 
 _PART_PATTERN: Pattern = re.compile(
     r"""
@@ -33,57 +39,57 @@ _PART_PATTERN: Pattern = re.compile(
     $""",
     re.VERBOSE,
 )
+
 _ALLOWED_CHARS = re.compile(r"[^가-힣A-Za-z0-9\s]")  # 특수문자 제거용
 
-
-def _clean_name(raw: str) -> str:
-    """특수문자 제거 후, 마지막 공백 뒤 토큰만 반환."""
-    cleaned = _ALLOWED_CHARS.sub("", raw).strip()
-    return cleaned.rsplit(" ", 1)[-1]  # 공백 없으면 그대로
-
-
-def _parse_part(part: str) -> Tuple[str, float, str] | None:
-    """‘오이 1g’ 같은 한 파트 문자열을 (이름, 수량, 단위)로 파싱."""
-    if m := _PART_PATTERN.match(part):
-        name  = _clean_name(m.group("name"))
-        qty   = float(m.group("number"))
-        unit  = (m.group("unit") or "").strip()
-        extra = (m.group("extra") or "").strip()
-        return name, qty, f"{unit}{extra}" if extra else unit
-    return None
-
-
-logger = logging.getLogger("user_ingredients")
-logger.setLevel(logging.INFO)
-
-router = APIRouter(
-    prefix="/api/user_ingredients",
-    tags=["user_ingredients"],
-)
-
-API_KEY    = os.getenv("FOOD_SAFETY_API_KEY")
-SERVICE_ID = os.getenv("FOOD_SAFETY_SERVICE_ID")
-
+def get_or_create_ingredient(db: Session, name: str) -> IngredientMaster:
+    """
+    IngredientMaster에서 name으로 조회 후 없으면 생성
+    """
+    ingredient = db.exec(
+        select(IngredientMaster).where(IngredientMaster.name == name)
+    ).first()
+    if not ingredient:
+        ingredient = IngredientMaster(name=name)
+        db.add(ingredient)
+        db.commit()
+        db.refresh(ingredient)
+    return ingredient
 
 def parse_parts_dtls(text: str) -> List[Tuple[str, float, str]]:
     """
-    RCP_PARTS_DTLS 문자열을
-    [(재료명, 수량(float), 단위 문자열), …] 리스트로 변환.
-    - 재료명: 특수문자 제거 후, 공백이 있으면 마지막 토큰만 사용
+    주어진 텍스트에서 쉼표/줄바꿈으로 분할한 후:
+    - ':'가 있으면 ':' 뒤 텍스트만 사용
+    - 괄호 전체 제거
+    - 수량(숫자)이 포함되지 않은 항목은 무시
+    - 수량/단위 제거 후 재료명만 추출
     """
-    # 두 번째 줄(재료 목록) 확보
-    try:
-        _, parts_line, *_ = text.splitlines()
-    except ValueError:          # 줄이 2개 미만
-        return []
+    parts = re.split(r"[\n,]", text)
+    result = []
 
-    # 리스트 컴프리헨션 + 월러스( := )로 동시에 파싱·필터
-    return [
-        parsed
-        for part in map(str.strip, parts_line.split(","))
-        if part and (parsed := _parse_part(part))
-    ]
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
 
+        # ":"가 있다면 뒷부분만 사용
+        if ":" in part:
+            part = part.split(":", 1)[-1].strip()
+
+        # 괄호 전체 제거
+        part = re.sub(r"\([^)]*\)", "", part).strip()
+
+        # 수량이 없으면 스킵 (숫자가 포함되지 않은 경우)
+        if not re.search(r"\d", part):
+            continue
+
+        # 한글과 공백만 남김
+        name_only = re.sub(r"[^가-힣\s]", "", part).strip()
+
+        if name_only:
+            result.append((name_only, 0.0, ""))
+
+    return result
 
 @router.post(
     "/",
@@ -100,19 +106,12 @@ def create_user_ingredient(
         raise HTTPException(status_code=404, detail=f"User id={data.user_id} not found")
 
     # 1) IngredientMaster 조회 혹은 생성
-    im = session.exec(
-        select(IngredientMaster).where(IngredientMaster.name == data.name)
-    ).first()
-    if not im:
-        im = IngredientMaster(name=data.name)
-        session.add(im)
-        session.commit()
-        session.refresh(im)
+    im = get_or_create_ingredient(session, data.name)
 
     # 2) UserIngredient 중복 검사
     exists = session.exec(
         select(UserIngredient)
-        .where(UserIngredient.user_id       == data.user_id)
+        .where(UserIngredient.user_id == data.user_id)
         .where(UserIngredient.ingredient_id == im.id)
     ).first()
     if exists:
@@ -120,72 +119,56 @@ def create_user_ingredient(
 
     # 3) UserIngredient 삽입
     ui = UserIngredient(
-        user_id       = data.user_id,
-        ingredient_id = im.id,
-        quantity      = data.quantity,
+        user_id=data.user_id,
+        ingredient_id=im.id,
+        quantity=data.quantity,
     )
     session.add(ui)
     session.commit()
     session.refresh(ui)
 
-    # 4) 백그라운드 태스크로 Recipe/Ingredient 삽입 및 개별 임베딩
+    # 4) 백그라운드 태스크로 Recipe/Ingredient 삽입 및 임베딩
     background_tasks.add_task(process_new_ingredient, data.user_id, data.name)
 
     return UserIngredientRead(
-        user_id    = ui.user_id,
-        name       = data.name,
-        quantity   = ui.quantity,
-        created_at = ui.created_at,
+        user_id=ui.user_id,
+        name=data.name,
+        quantity=ui.quantity,
+        created_at=ui.created_at,
     )
 
-
 def process_new_ingredient(user_id: int, name: str):
-    """
-    새로운 사용자 식재료(user_id, name)가 등록되면,
-    식품안전나라 오픈API를 호출하여 관련 레시피(최대 10건)를 가져온 뒤:
-
-      1) Recipe/IngredientMaster/Instruction 테이블에 반영
-      2) 신규 생성된 레시피를 모아서, embed_new_recipes()를 호출해 한꺼번에 임베딩 업서트
-      3) UserRecipe 연결
-    """
+    logger = logging.getLogger("user_ingredients")
     logger.info(f"[BG] 시작: user_id={user_id}, name={name}")
     try:
         # 1) 외부 API 호출
         data_url = (
             f"http://openapi.foodsafetykorea.go.kr/api/"
-            f"{API_KEY}/{SERVICE_ID}/json/1/10"
+            f"{API_KEY}/{SERVICE_ID}/json/1/100"
             f"/RCP_PARTS_DTLS={quote(name)}"
         )
-
         with httpx.Client(timeout=10, trust_env=True) as client:
             resp = client.get(data_url)
 
         logger.info(f"[BG] Data API URL   : {data_url}")
         logger.info(f"[BG] Data API Status: {resp.status_code}")
-
         if resp.status_code != 200 or not resp.text.strip():
             logger.error(f"[BG] Data API 응답 이상: {resp.status_code}")
             return
 
         data_json = resp.json()
-        section   = data_json.get(SERVICE_ID, {}) or {}
-        items     = section.get("row", []) or []
+        section = data_json.get(SERVICE_ID, {}) or {}
+        items = section.get("row", []) or []
         logger.info(f"[BG] '{name}' 조회된 아이템 수: {len(items)}")
 
         # 2) DB 처리
         new_recipe_ids: List[int] = []
         with Session(engine) as db:
-            # IngredientMaster 보장 (이미 위에서 만들었지만, 재확인)
-            im = db.exec(
-                select(IngredientMaster).where(IngredientMaster.name == name)
-            ).first()
-            if not im:
-                im = IngredientMaster(name=name)
-                db.add(im); db.commit(); db.refresh(im)
+            im = get_or_create_ingredient(db, name)
 
             for item in items:
-                title       = item.get("RCP_NM") or item.get("PRDLST_NM")
-                recipe_hash = title  # 식별용 해시로 레시피 이름을 사용
+                title = item.get("RCP_NM") or item.get("PRDLST_NM")
+                recipe_hash = title
 
                 # 2-1) Recipe 중복 체크 / 신규 생성
                 recipe = db.exec(
@@ -194,48 +177,41 @@ def process_new_ingredient(user_id: int, name: str):
                 is_new = False
                 if not recipe:
                     recipe = Recipe(
-                        name        = title,
-                        category    = item.get("RCP_PAT2")  or item.get("PRDLST_DCNM"),
-                        method      = item.get("RCP_WAY2"),
-                        description = item.get("RCP_PARTS_DTLS") or item.get("PIC_URL", ""),
-                        calories    = item.get("INFO_ENG")   or item.get("NUTR_CONT1"),
-                        protein     = item.get("INFO_PRO")   or item.get("NUTR_CONT2"),
-                        carbs       = item.get("INFO_CAR")   or item.get("NUTR_CONT3"),
-                        fat         = item.get("INFO_FAT")   or item.get("NUTR_CONT4"),
-                        sodium      = item.get("INFO_NA")    or item.get("NUTR_CONT5"),
-                        recipe_hash = recipe_hash,
+                        name=title,
+                        category=item.get("RCP_PAT2") or item.get("PRDLST_DCNM"),
+                        method=item.get("RCP_WAY2"),
+                        description=item.get("RCP_PARTS_DTLS") or item.get("PIC_URL", ""),
+                        calories=item.get("INFO_ENG") or item.get("NUTR_CONT1"),
+                        protein=item.get("INFO_PRO") or item.get("NUTR_CONT2"),
+                        carbs=item.get("INFO_CAR") or item.get("NUTR_CONT3"),
+                        fat=item.get("INFO_FAT") or item.get("NUTR_CONT4"),
+                        sodium=item.get("INFO_NA") or item.get("NUTR_CONT5"),
+                        recipe_hash=recipe_hash,
                     )
                     db.add(recipe)
                     db.commit()
                     db.refresh(recipe)
                     is_new = True
 
-                # 2-2) 신규 레시피인 경우만 parts_dtls 파싱 및 IngredientRecipeMapping
+                # 2-2) 신규 레시피인 경우 매핑
                 if is_new:
                     new_recipe_ids.append(recipe.id)
                     parts = parse_parts_dtls(item.get("RCP_PARTS_DTLS", ""))
                     for ing_name, _, _ in parts:
-                        pm = db.exec(
-                            select(IngredientMaster).where(IngredientMaster.name == ing_name)
-                        ).first()
-                        if not pm:
-                            pm = IngredientMaster(name=ing_name)
-                            db.add(pm); db.commit(); db.refresh(pm)
-
+                        pm = get_or_create_ingredient(db, ing_name)
                         exists_map = db.exec(
-                            select(IngredientRecipeMapping)
-                            .where(
-                                IngredientRecipeMapping.recipe_id     == recipe.id,
+                            select(IngredientRecipeMapping).where(
+                                IngredientRecipeMapping.recipe_id == recipe.id,
                                 IngredientRecipeMapping.ingredient_id == pm.id
                             )
                         ).first()
                         if not exists_map:
                             db.add(IngredientRecipeMapping(
-                                recipe_id     = recipe.id,
-                                ingredient_id = pm.id,
+                                recipe_id=recipe.id,
+                                ingredient_id=pm.id,
                             ))
 
-                # 2-3) MANUAL01~20 → Instruction 저장
+                # 2-3) Instruction 저장
                 blank_count = 0
                 for i in range(1, 21):
                     key = f"MANUAL{i:02d}"
@@ -243,24 +219,22 @@ def process_new_ingredient(user_id: int, name: str):
                     if text:
                         blank_count = 0
                         inst_exists = db.exec(
-                            select(Instruction)
-                            .where(
+                            select(Instruction).where(
                                 Instruction.recipe_id == recipe.id,
-                                Instruction.step      == i
+                                Instruction.step == i
                             )
                         ).first()
                         if not inst_exists:
                             db.add(Instruction(
-                                recipe_id   = recipe.id,
-                                step        = i,
-                                instruction = text
+                                recipe_id=recipe.id,
+                                step=i,
+                                instruction=text
                             ))
                     else:
                         blank_count += 1
                         if blank_count >= 2:
                             break
 
-                # 2-4) 커밋 (Instruction 포함)
                 try:
                     db.commit()
                 except IntegrityError:
@@ -268,23 +242,19 @@ def process_new_ingredient(user_id: int, name: str):
 
                 # 2-5) UserRecipe 연결
                 ur = db.exec(
-                    select(UserRecipe)
-                    .where(
-                        UserRecipe.user_id   == user_id,
+                    select(UserRecipe).where(
+                        UserRecipe.user_id == user_id,
                         UserRecipe.recipe_id == recipe.id
                     )
                 ).first()
                 if not ur:
-                    db.add(UserRecipe(
-                        user_id   = user_id,
-                        recipe_id = recipe.id,
-                    ))
+                    db.add(UserRecipe(user_id=user_id, recipe_id=recipe.id))
                     try:
                         db.commit()
                     except IntegrityError:
                         db.rollback()
 
-        # 3) 새로 만들어진 레시피가 하나 이상 있다면, 한꺼번에 embed_new_recipes() 호출
+        # 3) 임베딩
         if new_recipe_ids:
             try:
                 embed_new_recipes()
@@ -293,112 +263,5 @@ def process_new_ingredient(user_id: int, name: str):
                 logger.exception("[BG] embed_new_recipes() 호출 중 예외 발생")
 
         logger.info(f"[BG] 완료: user_id={user_id}, name={name}")
-
     except Exception:
         logger.exception("❌ process_new_ingredient 예외 발생")
-
-
-@router.get(
-    "/",
-    response_model=List[UserIngredientRead],
-)
-def list_user_ingredients(session: Session = Depends(get_session)):
-    stmt    = select(UserIngredient, IngredientMaster.name).join(
-                  IngredientMaster,
-                  UserIngredient.ingredient_id == IngredientMaster.id
-              )
-    results = session.exec(stmt).all()
-
-    out: List[UserIngredientRead] = []
-    for ui, nm in results:
-        out.append(UserIngredientRead(
-            user_id    = ui.user_id,
-            name       = nm,
-            quantity   = ui.quantity,
-            created_at = ui.created_at,
-        ))
-    return out
-
-
-@router.get(
-    "/{user_id}/{name}",
-    response_model=UserIngredientRead,
-)
-def get_user_ingredient(
-    user_id: int,
-    name:    str,
-    session: Session = Depends(get_session),
-):
-    im = session.exec(
-        select(IngredientMaster).where(IngredientMaster.name == name)
-    ).first()
-    if not im:
-        raise HTTPException(status_code=404, detail="Ingredient not found")
-
-    ui = session.get(UserIngredient, (user_id, im.id))
-    if not ui:
-        raise HTTPException(status_code=404, detail="User ingredient not found")
-
-    return UserIngredientRead(
-        user_id    = ui.user_id,
-        name       = name,
-        quantity   = ui.quantity,
-        created_at = ui.created_at,
-    )
-
-
-@router.put(
-    "/{user_id}/{name}",
-    response_model=UserIngredientRead,
-)
-def update_user_ingredient(
-    user_id: int,
-    name:    str,
-    data:    UserIngredientCreate,
-    session: Session = Depends(get_session),
-):
-    im = session.exec(
-        select(IngredientMaster).where(IngredientMaster.name == name)
-    ).first()
-    if not im:
-        raise HTTPException(status_code=404, detail="Ingredient not found")
-
-    ui = session.get(UserIngredient, (user_id, im.id))
-    if not ui:
-        raise HTTPException(status_code=404, detail="User ingredient not found")
-
-    ui.quantity = data.quantity
-    session.add(ui)
-    session.commit()
-    session.refresh(ui)
-
-    return UserIngredientRead(
-        user_id    = ui.user_id,
-        name       = name,
-        quantity   = ui.quantity,
-        created_at = ui.created_at,
-    )
-
-
-@router.delete(
-    "/{user_id}/{name}",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-def delete_user_ingredient(
-    user_id: int,
-    name:    str,
-    session: Session = Depends(get_session),
-):
-    im = session.exec(
-        select(IngredientMaster).where(IngredientMaster.name == name)
-    ).first()
-    if not im:
-        raise HTTPException(status_code=404, detail="Ingredient not found")
-
-    ui = session.get(UserIngredient, (user_id, im.id))
-    if not ui:
-        raise HTTPException(status_code=404, detail="User ingredient not found")
-
-    session.delete(ui)
-    session.commit()
-    return

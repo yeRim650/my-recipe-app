@@ -10,10 +10,12 @@ from sentence_transformers import SentenceTransformer
 from sqlmodel import SQLModel, Session, select, create_engine
 from qdrant_client import QdrantClient, models as qd
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import func
+
 
 # ───────── 기본 설정 ──────────────────────────────────────
 DB_URL      = os.getenv("DATABASE_URL", "sqlite:///example.db")
-QDRANT_URL  = os.getenv("QDRANT_URL",  "http://localhost:6333")
+QDRANT_URL  = os.getenv("QDRANT_URL",  "http://localhost:6201")
 COL         = "recipes_bert_vector"
 
 MODEL_NAME  = "BM-K/KoSimCSE-bert"
@@ -25,7 +27,7 @@ log = logging.getLogger("engine")
 # ───────── DB 모델 ────────────────────────────────────────
 from app.models import (
     Recipe, Ingredient, IngredientMaster,
-    RecipeEmbedding, UserIngredient
+    RecipeEmbedding, UserIngredient, IngredientRecipeMapping
 )
 
 engine = create_engine(DB_URL, echo=False)
@@ -118,47 +120,71 @@ def embed_new_recipes(batch: int = BATCH_SIZE):
 
 # ───────── 2) 사용자 맞춤 추천 ────────────────────────────
 def recommend_for_user(user_id: int, query: str, top_k: int = 10, boost: float = 0.2):
+    # 1) 사용자 냉장고 재료 ID 조회
     with Session(engine) as db:
-        fridge = [
-            row[0] for row in db.exec(
-                select(IngredientMaster.name)
-                .join(UserIngredient, IngredientMaster.id == UserIngredient.ingredient_id)
-                .where(UserIngredient.user_id == user_id)
-            )
-        ]
+        fridge_ids: list[int] = db.exec(
+            select(IngredientMaster.id)
+            .join(UserIngredient, IngredientMaster.id == UserIngredient.ingredient_id)
+            .where(UserIngredient.user_id == user_id)
+        ).all()
 
+    # 2) 벡터 검색
     qv = model.encode([query], normalize_embeddings=True)[0]
     resp = qc.query_points(COL, query=qv, using="vector", limit=40, with_payload=True)
 
-    # 1) score + recipe_id 리스트 만들기
-    scored = []
+    # 3) 검색된 레시피 ID 리스트
+    resp_rids = [p.payload["recipe_id"] for p in resp.points]
+
+    # 4) IngredientRecipeMapping 으로 overlap 카운트 조회
+    with Session(engine) as db:
+        rows: list[tuple[int,int]] = db.exec(
+            select(
+                IngredientRecipeMapping.recipe_id,
+                func.count(IngredientRecipeMapping.ingredient_id)
+            )
+            .where(
+                IngredientRecipeMapping.recipe_id.in_(resp_rids),
+                IngredientRecipeMapping.ingredient_id.in_(fridge_ids)
+            )
+            .group_by(IngredientRecipeMapping.recipe_id)
+        ).all()
+
+    # recipe_id → 겹친 재료 수 매핑
+    overlap_count = {rid: cnt for rid, cnt in rows}
+
+    # 5) score 계산
+    scored: list[tuple[float,int]] = []
     for p in resp.points:
-        score = p.score + boost * sum(
-            1 for f in fridge if f.lower() in p.payload["name"].lower()
-        )
-        scored.append((score, p.payload["recipe_id"]))
+        rid = p.payload["recipe_id"]
+        overlap = overlap_count.get(rid, 0)
+        score = p.score + boost * overlap
+        scored.append((score, rid))
 
-    # 2) 내림차순 정렬
-    scored_sorted = sorted(scored, key=lambda x: x[0], reverse=True)
-
-    # 3) 중복을 제거하면서 top_k 개의 unique recipe_id 수집
-    unique_rids = []
+    # 6) 내림차순 정렬 & top_k 고유 추출
+    unique_rids: list[int] = []
     seen = set()
-    for _, rid in scored_sorted:
+    for score, rid in sorted(scored, key=lambda x: x[0], reverse=True):
         if rid not in seen:
             seen.add(rid)
             unique_rids.append(rid)
         if len(unique_rids) >= top_k:
             break
 
-    # 4) DB에서 최종 레시피 조회 (고유 ID만 남아서 top_k 개가 된다)
+    # 7) DB에서 레시피 일괄 조회
     with Session(engine) as db:
-        return db.exec(select(Recipe).where(Recipe.id.in_(unique_rids))).all()
+        recipes = db.exec(
+            select(Recipe).where(Recipe.id.in_(unique_rids))
+        ).all()
 
+    # 8) 원래 order 대로 재정렬
+    recipe_map = {r.id: r for r in recipes}
+    ordered_recipes = [recipe_map[rid] for rid in unique_rids if rid in recipe_map]
+
+    return ordered_recipes
 # ───────── main ─────────────────────────────────────────
 if __name__ == "__main__":
     # reset_qdrant()
     embed_new_recipes()
 
-    for r in recommend_for_user(1, "생선 요리", 10):
+    for r in recommend_for_user(1, "파스타", 20):
         print(f"- {r.id} | {r.name} | {r.method} | {r.category}")

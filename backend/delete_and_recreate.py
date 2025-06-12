@@ -2,7 +2,7 @@
 from qdrant_client import QdrantClient
 from recipe_rag_pipeline import reset_qdrant, COL
 
-qc = QdrantClient(url="http://localhost:6333")
+qc = QdrantClient(url="http://localhost:6201")
 
 # 1) 기존 컬렉션 삭제
 if COL in [c.name for c in qc.get_collections().collections]:

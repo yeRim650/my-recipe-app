@@ -11,33 +11,25 @@
 | FR-2   | 보유 재료 관리                      | 사용자가 냉장고에 가진 재료 등록·조회·삭제 (user_ingredients)               |
 | FR-3   | 레시피 인제스천                     | 사용자가 새로운 재료를 등록할 때마다 외부 오픈 API에서 레시피를 가져와 저장 (recipes, ingredients, instructions, recipe_embeddings) |
 | FR-4   | RAG 추천                            | 저장된 레시피 임베딩 검색 → LLM 호출 → 사용자에게 추천 문구 반환             |
-| FR-5   | 사용자별 레시피 저장/즐겨찾기       | 사용자가 마음에 드는 레시피를 즐겨찾기 형태로 저장 (user_recipes)            |
-| FR-6   | API 자동 문서화                     | FastAPI Swagger/OpenAPI UI 제공                                             |
-| FR-7   | 프론트엔드 연동                     | React SPA에서 REST API 호출                                                  |
+| FR-5   | API 자동 문서화                     | FastAPI Swagger/OpenAPI UI 제공                                             |
+| FR-6   | 프론트엔드 연동                     | React SPA에서 REST API 호출                                                  |
 
 ### 1.2. 비기능적 요구사항
 
 - **응답성**  
   - CRUD: ≤100ms  
-  - RAG 추천: ≤2s  
+  - RAG 추천: ≤5s  
 - **확장성**  
-  - 단일 FastAPI → 필요 시 BackgroundTask → Celery 전환  
+  - 단일 FastAPI → 필요 시 BackgroundTask  
   - VectorDB(Weaviate/Pinecone) 클러스터 확장 가능  
 - **신뢰성/내결함성**  
   - PostgreSQL·Redis는 Docker 볼륨으로 데이터 유지  
-  - 컨테이너 자동 재시작 설정(restart: always)  
-- **보안**  
-  - JWT 인증·권한 관리 여지  
-  - `.env`로 시크릿 관리  
-- **운영/모니터링**  
-  - 로그(uvicorn, 백그라운드) 중앙집중(ELK/Loki)  
-  - 메트릭(Prometheus+Grafana)
+  - 컨테이너 자동 재시작 설정(restart: always) 
 
 ### 1.3. 우선순위
 
-1. **핵심**: FR-1, FR-2, FR-3, FR-4, FR-6  
-2. **확장**: FR-5, Celery 전환, VectorDB 최적화  
-3. **보안·모니터링**: 인증·권한, 로깅·메트릭  
+1. **핵심**: FR-1, FR-2, FR-3, FR-4, FR-5  
+2. **확장**: FR-6, VectorDB 최적화, Celery 전환
 
 
 ### 1.4. 벡터 검색 품질 평가 기준
@@ -95,13 +87,13 @@ graph LR
    - Recipes Router (`/api/recipes`)  
    - RAG Router (`/api/rag/recommend`)  
    - BackgroundTasks: `fetch_and_store_recipes(ingredient)`  
-   - Pydantic/SQLModel → PostgreSQL  
+   - Pydantic/SQLModel → MySQL  
 
 3. **BackgroundTask Executor**  
    - `fastapi.BackgroundTasks` 초기 → Celery + Redis 전환 가능  
 
 4. **Data Layer**  
-   - **PostgreSQL**: users, user_ingredients, recipes, ingredients, instructions, user_recipes  
+   - **MySQL**: users, user_ingredients, recipes, ingredients, instructions, user_recipes  
    - **VectorDB**: recipe_embeddings  
 
 5. **Integration Layer**  
@@ -233,12 +225,8 @@ sequenceDiagram
 ### 2.5. 배포 & 운영
 
 - **docker-compose** (dev):  
-  - services: `db`, `api`, `vector-db`, `redis`  
-- **CI/CD**: GitHub Actions → Docker Hub → Prod  
-- **모니터링**:  
-  - 로그: ELK Stack / Grafana Loki  
-  - 메트릭: Prometheus → Grafana  
-
+  - services: `db`, `api`, `vector-db` 
+- **CI/CD**: GitHub Actions → Docker Hub → Prod 
 ---
 
 ### 2.6 데이터 수집 전략
@@ -249,15 +237,13 @@ sequenceDiagram
 
 ### 프로젝트 일정
 
-아래는 **5개 스프린트**의 요약과, 각 스프린트별 주 단위 세부 일정입니다. Sprint 1만 1주차로 축소했고, 나머지는 2주씩 구성했습니다.
-
 | 스프린트   | 기간               | 핵심 목표                                                         |
 |:-----------|:-------------------|:------------------------------------------------------------------|
 | **Sprint 1** | 4/28(월) – 5/2(금)     | • 레포·Docker Compose 환경 세팅<br>• DB 모델 정의 & 마이그레이션<br>• FastAPI 스켈레톤 엔드포인트<br>• React 초기화 & Axios 연동 확인 |
 | **Sprint 2** | 5/5(월) – 5/9(금)   | • Users / User_Ingredients CRUD<br>• BackgroundTask 뼈대 추가<br>• 외부 레시피 API 연동 & 저장 로직 |
 | **Sprint 3** | 5/12 (월) – 6/13 (금) <br> (2주 연장)    | • OpenAI Embedding 모듈 구현<br>• recipe_embeddings 테이블/VectorDB 연동<br>• 임베딩 upsert 파이프라인 완성<br>• VectorDB 검색 품질 기준 목표치 설정 |
 | **Sprint 4** | 6/16 (월) – 6/27 (금)    | • `/api/rag/recommend` 추천 로직(벡터 검색+LLM)<br>• React 추천 UI 통합<br>• 단위·통합 테스트 |
-| **Sprint 5** | 6/30 (월) – 7/18 (금)    | • CI/CD 파이프라인 구축<br>• 모니터링·로깅 설정<br>• 최종 리팩토링 & 문서 정리 |
+| **Sprint 5** | 6/30 (월) – 7/11 (금)    | • CI/CD 파이프라인 구축<br>• 모니터링·로깅 설정<br>• 최종 리팩토링 & 문서 정리 |
 
 ---
 
@@ -319,15 +305,13 @@ sequenceDiagram
 
 ---
 
-### Sprint 5 (6/30 – 7/4)
+### Sprint 5 (6/30 – 7/11)
 
 #### 6/30 – 7/18
 - GitHub Actions 워크플로우 작성 (빌드 → 이미지 푸시 → 스테이징 배포)  
 - 스테이징 환경 검증  
 
-#### 7/7 – 7/18
-- Prometheus/Grafana 대시보드 기본 구성  
-- ELK/Loki 로그 수집 파이프라인 설정  
+#### 7/7 – 7/11
 - 코드 리팩토링 & 최종 문서 정리  
 
 ---

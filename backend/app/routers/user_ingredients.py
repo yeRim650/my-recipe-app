@@ -30,15 +30,6 @@ router = APIRouter(
 API_KEY = os.getenv("FOOD_SAFETY_API_KEY")
 SERVICE_ID = os.getenv("FOOD_SAFETY_SERVICE_ID")
 
-_PART_PATTERN: Pattern = re.compile(
-    r"""
-    ^(?P<name>[^\d]+?)\s+           # 재료명
-    (?P<number>\d+(?:\.\d+)?)       # 수량
-    (?P<unit>[^\d(][^(\s]*)?        # 단위(선택)
-    (?P<extra>\(.*\))?              # 괄호 설명(선택)
-    $""",
-    re.VERBOSE,
-)
 
 _ALLOWED_CHARS = re.compile(r"[^가-힣A-Za-z0-9\s]")  # 특수문자 제거용
 
@@ -265,3 +256,70 @@ def process_new_ingredient(user_id: int, name: str):
         logger.info(f"[BG] 완료: user_id={user_id}, name={name}")
     except Exception:
         logger.exception("❌ process_new_ingredient 예외 발생")
+
+@router.get(
+    "/{user_id}",
+    response_model=List[UserIngredientRead],
+    status_code=status.HTTP_200_OK,
+)
+def read_user_ingredients(
+    user_id: int,
+    session: Session = Depends(get_session),
+):
+    # 1) user 존재 확인
+    if not session.get(User, user_id):
+        raise HTTPException(status_code=404, detail=f"User id={user_id} not found")
+
+    # 2) UserIngredient 조회
+    ui_list = session.exec(
+        select(UserIngredient).where(UserIngredient.user_id == user_id)
+    ).all()
+
+    # 3) IngredientMaster.name 과 함께 read 스키마로 반환
+    return [
+        UserIngredientRead(
+            user_id=ui.user_id,
+            name=session.get(IngredientMaster, ui.ingredient_id).name,
+            quantity=ui.quantity,
+            created_at=ui.created_at,
+        )
+        for ui in ui_list
+    ]
+
+
+@router.delete(
+    "/{user_id}/{name}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_user_ingredient(
+    user_id: int,
+    name: str,
+    session: Session = Depends(get_session),
+):
+    # 1) user 존재 확인
+    if not session.get(User, user_id):
+        raise HTTPException(status_code=404, detail=f"User id={user_id} not found")
+
+    # 2) IngredientMaster 조회
+    im = session.exec(
+        select(IngredientMaster).where(IngredientMaster.name == name)
+    ).first()
+    if not im:
+        raise HTTPException(status_code=404, detail=f"Ingredient '{name}' not found")
+
+    # 3) UserIngredient 조회
+    ui = session.exec(
+        select(UserIngredient)
+        .where(UserIngredient.user_id == user_id)
+        .where(UserIngredient.ingredient_id == im.id)
+    ).first()
+    if not ui:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Ingredient '{name}' not in user {user_id}'s fridge"
+        )
+
+    # 4) 삭제
+    session.delete(ui)
+    session.commit()
+    return

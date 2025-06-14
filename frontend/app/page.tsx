@@ -1,86 +1,187 @@
+// app/components/CleanRecipeRecommender.tsx
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
 import { ChefHat, Search, User, Refrigerator, Plus, X } from "lucide-react"
 import type { Recipe, RecommendationResponse } from "../types/recipe"
 import { Label } from "@/components/ui/label"
 
 export default function CleanRecipeRecommender() {
+  // recipes / fridge
   const [recipes, setRecipes] = useState<Recipe[]>([])
   const [fridgeItems, setFridgeItems] = useState<string[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [hasSearched, setHasSearched] = useState(false)
+
+  // form & UI state
   const [query, setQuery] = useState("")
   const [newIngredient, setNewIngredient] = useState("")
-  const [isLoggedIn, setIsLoggedIn] = useState(false)
-  const [username, setUsername] = useState("")
-  const [loginUsername, setLoginUsername] = useState("")
-  const [loginPassword, setLoginPassword] = useState("")
-
-  // 로딩 상태들
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
   const [fridgeLoading, setFridgeLoading] = useState(false)
   const [addingIngredient, setAddingIngredient] = useState(false)
   const [deletingIngredient, setDeletingIngredient] = useState<string | null>(null)
+
+  // auth state
+  const [isLoggedIn, setIsLoggedIn] = useState(false)
+  const [username, setUsername] = useState("")
+  const [loginUsername, setLoginUsername] = useState("")
+  const [loginEmail, setLoginEmail] = useState("")
   const [loginLoading, setLoginLoading] = useState(false)
   const [logoutLoading, setLogoutLoading] = useState(false)
+  const [isSignupMode, setIsSignupMode] = useState(false)
+  const [signupUsername, setSignupUsername] = useState("")
+  const [signupEmail, setSignupEmail] = useState("")
+  const [signupLoading, setSignupLoading] = useState(false)
+  const [userId, setUserId] = useState<number | null>(null)
 
-  // 냉장고 재료와 매칭되는 재료를 찾는 함수 추가
-  const findMatchingIngredients = (description: string, fridgeItems: string[]) => {
-    const ingredients = description.split(",").map((item) => item.trim())
-    const matches: { ingredient: string; fridgeItem: string }[] = []
-
-    ingredients.forEach((ingredient) => {
-      fridgeItems.forEach((fridgeItem) => {
-        if (ingredient.includes(fridgeItem)) {
-          matches.push({ ingredient, fridgeItem })
-        }
-      })
-    })
-
-    return matches
+  // ▶ 전체 상태 초기화 (첫 화면으로 돌아가기)
+  const handleReset = () => {
+    setHasSearched(false)
+    setRecipes([])
+    setQuery("")
+    setError(null)
   }
 
-  // 재료 텍스트를 하이라이트하는 함수 추가
-  const highlightIngredients = (description: string, fridgeItems: string[]) => {
-    let highlightedText = description
+  // (0) 한글만 남기고 나머지 제거하는 헬퍼
+const normalizeHangul = (s: string) =>
+  s.replace(/[^ㄱ-ㅣ가-힣]/g, "").trim();
 
+// (2) 냉장고 재료와 매칭 (정규화 후 완전 일치할 때만)
+const findMatchingIngredients = (
+  description: string,
+  fridgeItems: string[]
+) => {
+  const tokens = description.split(",").map((t) => t.trim());
+  const matches: { ingredient: string; fridgeItem: string }[] = [];
+
+  tokens.forEach((token) => {
+    const normToken = normalizeHangul(token);
     fridgeItems.forEach((fridgeItem) => {
-      const regex = new RegExp(`(${fridgeItem})`, "gi")
-      highlightedText = highlightedText.replace(
-        regex,
-        `<mark class="bg-green-100 text-green-800 px-1 rounded">$1</mark>`,
-      )
-    })
+      const normFridge = normalizeHangul(fridgeItem);
+      if (normToken && normToken === normFridge) {
+        matches.push({ ingredient: token, fridgeItem });
+      }
+    });
+  });
 
-    return highlightedText
+  return matches;
+};
+
+// (3) 하이라이트도 같은 로직
+const highlightIngredients = (
+  description: string,
+  fridgeItems: string[]
+) => {
+  return description
+    .split(",")
+    .map((t) => {
+      const raw = t.trim();
+      const normRaw = normalizeHangul(raw);
+
+      // 정규화 문자열이 냉장고 재료 중 하나와 완전 일치하면 하이라이트
+      const isMatch = fridgeItems.some(
+        (fridgeItem) => normRaw === normalizeHangul(fridgeItem)
+      );
+
+      return isMatch
+        ? `<mark class="bg-green-100 text-green-800 px-1 rounded">${raw}</mark>`
+        : raw;
+    })
+    .join(", ");
+};
+
+  // ▶ 회원가입
+  const handleSignup = async () => {
+    if (!signupUsername.trim() || !signupEmail.trim()) return
+    setSignupLoading(true)
+    setError(null)
+    try {
+      const res = await fetch("/api/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: signupUsername, email: signupEmail }),
+      })
+      if (!res.ok) throw new Error(`회원가입 실패: ${res.status}`)
+      const user = await res.json()
+      setIsLoggedIn(true)
+      setUsername(user.username)
+      setUserId(user.id)
+      setSignupUsername("")
+      setSignupEmail("")
+      setIsSignupMode(false)
+    } catch (e: any) {
+      console.error(e)
+      setError(e.message)
+    } finally {
+      setSignupLoading(false)
+    }
   }
 
+  // ▶ 로그인
+  const handleLogin = async () => {
+    if (!loginUsername.trim() || !loginEmail.trim()) return
+    setLoginLoading(true)
+    setError(null)
+    try {
+      const res = await fetch("/api/users/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: loginUsername, email: loginEmail }),
+      })
+      if (!res.ok) throw new Error(`로그인 실패: ${res.status}`)
+      const user = await res.json()
+      setIsLoggedIn(true)
+      setUsername(user.username)
+      setUserId(user.id)
+      setLoginUsername("")
+      setLoginEmail("")
+    } catch (e: any) {
+      console.error(e)
+      setError(e.message)
+    } finally {
+      setLoginLoading(false)
+    }
+  }
+  const handleLogout = () => {
+    setIsLoggedIn(false)
+    setUsername("")
+  }
+
+  // ▶ 레시피 추천
   const fetchRecommendations = async () => {
     if (!query.trim()) return
-
     setLoading(true)
     setError(null)
-
     try {
-      const response = await fetch("http://127.0.0.1:8000/api/rag/recommend", {
+      const response = await fetch("/api/rag/recommend", {
         method: "POST",
         headers: {
           accept: "application/json",
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          user_id: 1,
-          query: query,
-          top_k: 10,
+          user_id: userId,
+          query,
+          top_k: 20,
           boost: 0.2,
         }),
       })
+
+      if (response.status === 422) {
+        setError("로그인 후 레시피 추천을 이용해주세요.")
+        return
+      }
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`)
@@ -91,112 +192,70 @@ export default function CleanRecipeRecommender() {
       setFridgeItems(data.fridge)
       setHasSearched(true)
     } catch (err) {
-      // Mock data for development
-      setFridgeItems(["당근", "두부", "양파", "계란"])
-      setRecipes([
-        {
-          id: 1,
-          name: "당근 볶음밥",
-          category: "밥",
-          method: "볶기",
-          description: "당근 2개, 밥 2공기, 계란 2개, 양파 1/2개, 간장 2큰술, 참기름 1큰술",
-          reason: "냉장고에 있는 당근과 계란을 활용한 영양만점 볶음밥입니다.",
-        },
-        {
-          id: 2,
-          name: "두부 당근 조림",
-          category: "반찬",
-          method: "끓이기",
-          description: "두부 1모, 당근 1개, 양파 1/2개, 간장 3큰술, 설탕 1큰술, 물 1컵",
-          reason: "부드러운 두부와 달콤한 당근이 어우러진 건강한 반찬입니다.",
-        },
-        {
-          id: 3,
-          name: "당근 계란말이",
-          category: "반찬",
-          method: "굽기",
-          description: "계란 4개, 당근 1/2개, 소금 약간, 식용유 2큰술",
-          reason: "아이들이 좋아하는 달콤한 당근이 들어간 계란말이입니다.",
-        },
-      ])
       setHasSearched(true)
     } finally {
       setLoading(false)
     }
   }
 
-  // 냉장고 재료 조회
+  // ▶ 냉장고 재료 조회
   const loadFridgeItems = async () => {
+    if (userId == null) return
     setFridgeLoading(true)
     try {
-      // API 호출 시뮬레이션
-      await new Promise((resolve) => setTimeout(resolve, 800))
-      // 실제로는 API에서 사용자의 냉장고 재료를 가져옴
-    } catch (err) {
-      console.error("Failed to load fridge items:", err)
+      const res = await fetch(`/api/user_ingredients/${userId}`)
+      if (!res.ok) throw new Error()
+      const data: { name: string; quantity: number }[] = await res.json()
+      setFridgeItems(data.map((d) => d.name))
+    } catch {
+      console.error("Failed to load fridge items")
     } finally {
       setFridgeLoading(false)
     }
   }
 
-  const addIngredient = async () => {
-    if (!newIngredient.trim() || fridgeItems.includes(newIngredient.trim())) return
-
-    setAddingIngredient(true)
-    try {
-      // API 호출 시뮬레이션
-      await new Promise((resolve) => setTimeout(resolve, 500))
-      setFridgeItems([...fridgeItems, newIngredient.trim()])
-      setNewIngredient("")
-    } catch (err) {
-      console.error("Failed to add ingredient:", err)
-    } finally {
-      setAddingIngredient(false)
+  // ▶ userId 세팅(=로그인 or 회원가입) 이후 자동으로 냉장고 재료 조회
+  useEffect(() => {
+    if (userId !== null) {
+      loadFridgeItems()
     }
-  }
+  }, [userId])
 
+  // ▶ 냉장고 재료 삭제
   const removeIngredient = async (ingredient: string) => {
+    if (userId == null) return
     setDeletingIngredient(ingredient)
     try {
-      // API 호출 시뮬레이션
-      await new Promise((resolve) => setTimeout(resolve, 500))
-      setFridgeItems(fridgeItems.filter((item) => item !== ingredient))
-    } catch (err) {
-      console.error("Failed to remove ingredient:", err)
+      await fetch(`/api/user_ingredients/${userId}/${encodeURIComponent(ingredient)}`, {
+        method: "DELETE",
+      })
+      setFridgeItems((prev) => prev.filter((i) => i !== ingredient))
+    } catch {
+      console.error("Failed to remove ingredient")
     } finally {
       setDeletingIngredient(null)
     }
   }
 
-  const handleLogin = async () => {
-    if (!isLoggedIn) {
-      if (!loginUsername.trim()) return
-
-      setLoginLoading(true)
-      try {
-        // 로그인 API 호출 시뮬레이션
-        await new Promise((resolve) => setTimeout(resolve, 1000))
-        setIsLoggedIn(true)
-        setUsername(loginUsername)
-        setLoginUsername("")
-        setLoginPassword("")
-      } catch (err) {
-        console.error("Login failed:", err)
-      } finally {
-        setLoginLoading(false)
-      }
-    } else {
-      setLogoutLoading(true)
-      try {
-        // 로그아웃 API 호출 시뮬레이션
-        await new Promise((resolve) => setTimeout(resolve, 800))
-        setIsLoggedIn(false)
-        setUsername("")
-      } catch (err) {
-        console.error("Logout failed:", err)
-      } finally {
-        setLogoutLoading(false)
-      }
+  // ▶ 냉장고 재료 추가
+  const addIngredient = async () => {
+    const ing = newIngredient.trim()
+    if (!ing || fridgeItems.includes(ing)) return
+    setAddingIngredient(true)
+    setError(null)
+    try {
+      const res = await fetch("/api/user_ingredients", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: userId, name: ing, quantity: 1 }),
+      })
+      if (!res.ok) throw new Error(`Status ${res.status}`)
+      setFridgeItems((prev) => [...prev, ing])
+      setNewIngredient("")
+    } catch {
+      setError("재료 추가 실패")
+    } finally {
+      setAddingIngredient(false)
     }
   }
 
@@ -206,10 +265,17 @@ export default function CleanRecipeRecommender() {
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gray-900 rounded-lg flex items-center justify-center">
-              <ChefHat className="w-6 h-6 text-white" />
-            </div>
-            <h1 className="text-2xl font-bold text-gray-900">레시피 추천</h1>
+            <button
+              onClick={handleReset}
+              className="flex items-center gap-3 focus:outline-none"
+            >
+              <div className="w-10 h-10 bg-gray-900 rounded-lg flex items-center justify-center">
+                <ChefHat className="w-6 h-6 text-white" />
+              </div>
+              <h1 className="text-2xl font-bold text-gray-900 cursor-pointer">
+                레시피 추천
+              </h1>
+            </button>
           </div>
 
           <div className="flex items-center gap-3">
@@ -229,45 +295,117 @@ export default function CleanRecipeRecommender() {
                 </DialogTrigger>
                 <DialogContent className="sm:max-w-md">
                   <DialogHeader>
-                    <DialogTitle>로그인</DialogTitle>
+                    <DialogTitle>{isSignupMode ? "회원가입" : "로그인"}</DialogTitle>
                   </DialogHeader>
                   <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="username">사용자명</Label>
-                      <Input
-                        id="username"
-                        value={loginUsername}
-                        onChange={(e) => setLoginUsername(e.target.value)}
-                        placeholder="사용자명을 입력하세요"
-                        disabled={loginLoading}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="password">이메일</Label>
-                      <Input
-                        id="password"
-                        value={loginPassword}
-                        onChange={(e) => setLoginPassword(e.target.value)}
-                        placeholder="이메일울 입력하세요"
-                        disabled={loginLoading}
-                      />
-                    </div>
-                    <Button onClick={handleLogin} className="w-full" disabled={!loginUsername.trim() || loginLoading}>
-                      {loginLoading ? (
-                        <>
-                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
-                          로그인 중...
-                        </>
-                      ) : (
-                        "로그인"
-                      )}
-                    </Button>
+                    {isSignupMode ? (
+                      // 회원가입 폼
+                      <>
+                        <div className="space-y-2">
+                          <Label htmlFor="signup-email">이메일</Label>
+                        <Input
+                            id="signup-email"
+                            type="email"
+                          value={signupEmail}
+                          onChange={(e) => setSignupEmail(e.target.value)}
+                            placeholder="이메일을 입력하세요"
+                          disabled={signupLoading}
+                        />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="signup-username">사용자명</Label>
+                        <Input
+                            id="signup-username"
+                          value={signupUsername}
+                          onChange={(e) => setSignupUsername(e.target.value)}
+                            placeholder="사용자명을 입력하세요"
+                          disabled={signupLoading}
+                        />
+                        </div>
+                        <Button
+                          onClick={handleSignup}
+                          className="w-full"
+                          disabled={
+                            !signupUsername.trim() || !signupEmail.trim() || signupLoading
+                          }
+                        >
+                          {signupLoading ? (
+                            <>
+                              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                              회원가입 중...
+                            </>
+                          ) : (
+                            "회원가입"
+                          )}
+                        </Button>
+                        <div className="text-center">
+                          <Button
+                            variant="ghost"
+                            onClick={() => setIsSignupMode(false)}
+                            className="text-sm text-gray-600 hover:text-gray-900"
+                            disabled={signupLoading}
+                          >
+                            이미 계정이 있으신가요? 로그인하기
+                        </Button>
+                        </div>
+                      </>
+                    ) : (
+                      // 로그인 폼
+                      <>
+                        <div className="space-y-2">
+                          <Label htmlFor="username">사용자명</Label>
+                        <Input
+                            id="username"
+                            value={loginUsername}
+                            onChange={(e) => setLoginUsername(e.target.value)}
+                            placeholder="사용자명을 입력하세요"
+                          disabled={loginLoading}
+                        />
+                        </div>
+                        <div className="space-y-2">
+                      <Label htmlFor="login-email">이메일</Label>
+                        <Input
+                        id="login-email"
+                        type="email"
+                            value={loginEmail}
+                            onChange={(e) => setLoginEmail(e.target.value)}
+                        placeholder="이메일을 입력하세요"
+                          disabled={loginLoading}
+                        />
+                        </div>
+                    {error && <p className="text-red-600 text-center">{error}</p>}
+                        <Button
+                          onClick={handleLogin}
+                          className="w-full"
+                      disabled={!loginUsername.trim() || !loginEmail.trim() || loginLoading}
+                        >
+                          {loginLoading ? (
+                            <>
+                              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                              로그인 중...
+                            </>
+                          ) : (
+                            "로그인"
+                          )}
+                        </Button>
+                        <div className="text-center">
+                          <Button
+                            variant="ghost"
+                            onClick={() => setIsSignupMode(true)}
+                            className="text-sm text-gray-600 hover:text-gray-900"
+                            disabled={loginLoading}
+                          >
+                            계정이 없으신가요? 회원가입하기
+                        </Button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </DialogContent>
               </Dialog>
             ) : (
               <Button
-                onClick={handleLogin}
+                onClick={handleLogout}
                 variant="outline"
                 className="flex items-center gap-2"
                 disabled={logoutLoading}
@@ -471,7 +609,7 @@ export default function CleanRecipeRecommender() {
         )}
 
         {/* Results */}
-        {hasSearched && recipes.length > 0 && (
+        {hasSearched && !loading && recipes.length > 0 && (
           <div className="space-y-6">
             <div className="text-center">
               <h2 className="text-2xl font-bold text-gray-900 mb-2">추천 레시피 ({recipes.length}개)</h2>
@@ -548,9 +686,9 @@ export default function CleanRecipeRecommender() {
             <CardContent>
               <ChefHat className="w-20 h-20 text-gray-400 mx-auto mb-6" />
               <h3 className="text-2xl font-bold text-gray-900 mb-4">맛있는 요리를 찾아보세요</h3>
-              <p className="text-gray-600 mb-6">냉장고에 있는 재료로 만들 수 있는 레시피를 추천해드립니다</p>
+              <p className="text-gray-600 mb-6">냉장고에 있는 재료를 바탕으로 다양한 레시피를 추천해드려요.</p>
               <div className="flex flex-wrap justify-center gap-2">
-                {["해물 풍미가 살아있는 얼큰한 찌개", "매콤한 면요리", "깊은 국물 요리", "부드러운 찜 요리"].map((suggestion) => (
+                {["과일 샐러드", "해물 풍미가 살아있는 얼큰한 찌개", "고소한 후식", "건강한 밥 레시피"].map((suggestion) => (
                   <Button
                     key={suggestion}
                     variant="outline"

@@ -14,14 +14,13 @@ router = APIRouter(
 
 @router.post(
     "/",
-    response_model=UserRead,            # ★ 응답에는 UserRead 사용
+    response_model=UserRead,
     status_code=status.HTTP_201_CREATED,
 )
 def create_user(
-    data: UserCreate,                   # ★ 입력은 UserCreate 만 받음
+    data: UserCreate,
     session: Session = Depends(get_session),
 ):
-    # 이메일 중복 검사
     existing = session.exec(
         select(User).where(User.email == data.email)
     ).first()
@@ -31,7 +30,6 @@ def create_user(
             detail="Email already registered",
         )
 
-    # User 인스턴스 생성: created_at/updated_at 은 DB가 채워줍니다
     user = User(**data.dict())
     session.add(user)
     session.commit()
@@ -39,9 +37,35 @@ def create_user(
     return user
 
 
+@router.post(
+    "/login",
+    response_model=UserRead,
+    status_code=status.HTTP_200_OK,
+)
+def login_user(
+    data: UserCreate,
+    session: Session = Depends(get_session),
+):
+    """
+    로그인: username과 email이 모두 일치하는 사용자가 있으면 반환.
+    """
+    user = session.exec(
+        select(User).where(
+            User.username == data.username,
+            User.email == data.email,
+        )
+    ).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or email",
+        )
+    return user
+
+
 @router.get(
     "/",
-    response_model=List[UserRead],      # 리스트 응답도 UserRead
+    response_model=List[UserRead],
 )
 def list_users(session: Session = Depends(get_session)):
     return session.exec(select(User)).all()
@@ -49,7 +73,7 @@ def list_users(session: Session = Depends(get_session)):
 
 @router.get(
     "/{user_id}",
-    response_model=UserRead,            # 단건 조회에도 UserRead
+    response_model=UserRead,
 )
 def get_user(user_id: int, session: Session = Depends(get_session)):
     user = session.get(User, user_id)
@@ -63,11 +87,11 @@ def get_user(user_id: int, session: Session = Depends(get_session)):
 
 @router.put(
     "/{user_id}",
-    response_model=UserRead,            # 수정 응답도 UserRead
+    response_model=UserRead,
 )
 def update_user(
     user_id: int,
-    data: UserCreate,                   # ★ 수정도 UserCreate
+    data: UserCreate,
     session: Session = Depends(get_session),
 ):
     db_user = session.get(User, user_id)
@@ -77,7 +101,6 @@ def update_user(
             detail="User not found",
         )
 
-    # 이메일 변경 시 중복 검사
     if data.email != db_user.email:
         dup = session.exec(
             select(User).where(User.email == data.email)
@@ -89,7 +112,7 @@ def update_user(
             )
 
     db_user.username = data.username
-    db_user.email    = data.email
+    db_user.email = data.email
     session.add(db_user)
     session.commit()
     session.refresh(db_user)

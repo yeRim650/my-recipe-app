@@ -9,7 +9,7 @@ WORKDIR /app
 # 패키지 파일들 복사
 COPY package.json pnpm-lock.yaml* ./
 RUN npm install -g pnpm
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --no-frozen-lockfile
 
 # 빌드 단계
 FROM base AS builder

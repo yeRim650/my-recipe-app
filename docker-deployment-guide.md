@@ -1,18 +1,18 @@
-# 🐳 Recipe App Docker 배포 가이드
+# Recipe App Docker 배포 가이드
 
 > Frontend + Backend 통합 Docker 배포 설정
 
-## 📋 변경사항 요약
+## 변경사항 요약
 
-### 🆕 새로 추가된 파일
+### 새로 추가된 파일
 - `docker-compose.yml` - 전체 앱 통합 compose 파일
 - `frontend/Dockerfile` - Next.js 프론트엔드용 Docker 설정
 - `nginx.conf` - 리버스 프록시 설정 (선택사항)
 
-### 🔄 수정된 파일
+### 수정된 파일
 - `frontend/next.config.mjs` - standalone 출력 모드 및 API 프록시 설정 추가
 
-## 🏗️ 아키텍처 구조
+## 아키텍처 구조
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -29,7 +29,7 @@
 └─────────────────────────────────────────────────────────────┘
 ```
 
-## 🚀 배포 방법
+## 배포 방법
 
 ### 1. 기본 실행 (추천)
 전체 스택을 독립적으로 실행:
@@ -92,7 +92,7 @@ pnpm dev
 docker-compose up -d
 ```
 
-## 📁 파일별 상세 설명
+## 파일별 상세 설명
 
 ### 1. `docker-compose.yml` (루트)
 - **목적**: 전체 애플리케이션 통합 배포
@@ -120,7 +120,7 @@ docker-compose up -d
   - `/api/` → Backend (FastAPI)
   - `/ws` → WebSocket 지원
 
-## 🛠️ 환경 변수 설정
+## 환경 변수 설정
 
 환경 변수가 필요한 경우 `.env` 파일 생성:
 
@@ -138,7 +138,7 @@ ENV=production
 NODE_ENV=production
 ```
 
-## 🐛 트러블슈팅
+## 트러블슈팅
 
 ### 1. 포트 충돌
 ```bash
@@ -176,7 +176,7 @@ docker network prune
 docker-compose down && docker-compose up -d
 ```
 
-## 🔄 유지보수 명령어
+## 유지보수 명령어
 
 ### 시작/중지
 ```bash
@@ -214,7 +214,7 @@ docker-compose build frontend
 docker-compose up -d frontend
 ```
 
-## 📊 성능 최적화 팁
+## 성능 최적화 팁
 
 1. **이미지 크기 최적화**
    - Multi-stage build 활용
@@ -233,7 +233,7 @@ docker-compose up -d frontend
    - 서비스 상태 자동 모니터링
    - 의존성 관리로 안정적인 시작 순서
 
-## 🔐 보안 고려사항
+## 보안 고려사항
 
 1. **환경 변수 보안**
    - `.env` 파일을 git에 커밋하지 않기

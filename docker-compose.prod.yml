@@ -4,10 +4,10 @@ services:
   # MySQL 데이터베이스
   mysql:
     image: mysql:8.0
-    container_name: recipe-mysql
+    container_name: recipe-mysql-prod
     environment:
-      MYSQL_ROOT_PASSWORD: 1234
-      MYSQL_DATABASE: cookwise
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-1234}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-cookwise}
     ports:
       - "3307:3306"
     volumes:
@@ -23,7 +23,7 @@ services:
   # QDRANT 벡터 데이터베이스
   qdrant:
     image: qdrant/qdrant:latest
-    container_name: recipe-qdrant
+    container_name: recipe-qdrant-prod
     ports:
       - "6201:6333"
     volumes:
@@ -31,16 +31,14 @@ services:
     networks:
       - recipe-network
 
-  # FastAPI 백엔드
+  # FastAPI 백엔드 (Docker Hub 이미지 사용)
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: recipe-backend
+    image: ${DOCKER_HUB_USERNAME}/my-recipe-app-backend:latest
+    container_name: recipe-backend-prod
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=mysql+pymysql://root:1234@mysql:3306/cookwise
+      - DATABASE_URL=mysql+pymysql://root:${MYSQL_ROOT_PASSWORD:-1234}@mysql:3306/${MYSQL_DATABASE:-cookwise}
       - QDRANT_URL=http://qdrant:6333
       - ENV=production
       - FOOD_SAFETY_API_KEY=${FOOD_SAFETY_API_KEY}
@@ -56,12 +54,10 @@ services:
     networks:
       - recipe-network
 
-  # Next.js 프론트엔드
+  # Next.js 프론트엔드 (Docker Hub 이미지 사용)
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: recipe-frontend
+    image: ${DOCKER_HUB_USERNAME}/my-recipe-app-frontend:latest
+    container_name: recipe-frontend-prod
     ports:
       - "3000:3000"
     environment:
@@ -76,7 +72,7 @@ services:
   # Nginx 리버스 프록시 (선택사항)
   nginx:
     image: nginx:alpine
-    container_name: recipe-nginx
+    container_name: recipe-nginx-prod
     ports:
       - "80:80"
     volumes:
@@ -88,32 +84,6 @@ services:
       - recipe-network
     profiles:
       - nginx
-
-  # 데이터 초기화 서비스 (한 번만 실행)
-  init-data:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: recipe-init-data
-    environment:
-      - DATABASE_URL=mysql+pymysql://root:1234@mysql:3306/cookwise
-      - QDRANT_URL=http://qdrant:6333
-      - ENV=production
-      - FOOD_SAFETY_API_KEY=${FOOD_SAFETY_API_KEY}
-      - FOOD_SAFETY_SERVICE_ID=${FOOD_SAFETY_SERVICE_ID:-COOKRCP01}
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-your_openai_api_key_here}
-    depends_on:
-      mysql:
-        condition: service_healthy
-      qdrant:
-        condition: service_started
-    volumes:
-      - ./backend/hf_cache:/app/hf_cache
-    command: python init_data.py
-    networks:
-      - recipe-network
-    profiles:
-      - init
 
 volumes:
   mysql_data:

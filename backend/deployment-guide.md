@@ -1,15 +1,15 @@
 # 레시피 추천 백엔드 애플리케이션 배포 가이드
 
-## 📋 개요
+## 개요
 FastAPI 기반의 레시피 추천 백엔드 애플리케이션을 Docker를 사용하여 배포하는 방법을 설명합니다.
 
-## 🏗️ 시스템 아키텍처
+## 시스템 아키텍처
 - **FastAPI**: 백엔드 API 서버 (포트: 8000)
 - **MySQL**: 관계형 데이터베이스 (포트: 3307)
 - **QDRANT**: 벡터 데이터베이스 (포트: 6201)
 - **Docker & Docker Compose**: 컨테이너 오케스트레이션
 
-## 📁 프로젝트 구조
+## 프로젝트 구조
 ```
 backend/
 ├── app/                    # FastAPI 애플리케이션
@@ -27,7 +27,7 @@ backend/
 └── delete_and_recreate.py # 데이터베이스 초기화 스크립트
 ```
 
-## 🚀 배포 절차
+## 배포 절차
 
 ### 1. 사전 준비
 
@@ -237,7 +237,7 @@ curl http://localhost:8000/health
 docker-compose exec mysql mysqladmin ping -h localhost -u root -p1234
 ```
 
-## 🚨 문제 해결
+## 문제 해결
 
 ### 1. 일반적인 문제
 

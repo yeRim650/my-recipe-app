@@ -1,8 +1,10 @@
 # delete_and_recreate.py
+import os
 from qdrant_client import QdrantClient
 from recipe_rag_pipeline import reset_qdrant, COL
 
-qc = QdrantClient(url="http://localhost:6201")
+QDRANT_URL  = os.getenv("QDRANT_URL",  "http://localhost:6201")
+qc = QdrantClient(url=QDRANT_URL)
 
 # 1) 기존 컬렉션 삭제
 if COL in [c.name for c in qc.get_collections().collections]:

@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  # MySQL 데이터베이스
+  mysql:
+    image: mysql:8.0
+    container_name: recipe-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: 1234
+      MYSQL_DATABASE: cookwise
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    command: --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+
+  # QDRANT 벡터 데이터베이스
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: recipe-qdrant
+    ports:
+      - "6201:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  # FastAPI 애플리케이션
+  backend:
+    build: .
+    container_name: recipe-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=mysql+pymysql://root:1234@mysql:3306/cookwise
+      - QDRANT_URL=http://qdrant:6333
+      - ENV=development
+      - FOOD_SAFETY_API_KEY=${FOOD_SAFETY_API_KEY}
+      - FOOD_SAFETY_SERVICE_ID=${FOOD_SAFETY_SERVICE_ID:-COOKRCP01}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-your_openai_api_key_here}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    volumes:
+      - ./hf_cache:/app/hf_cache
+
+  # 데이터 초기화 서비스 (한 번만 실행)
+  init-data:
+    build: .
+    container_name: recipe-init-data
+    environment:
+      - DATABASE_URL=mysql+pymysql://root:1234@mysql:3306/cookwise
+      - QDRANT_URL=http://qdrant:6333
+      - ENV=development
+      - FOOD_SAFETY_API_KEY=${FOOD_SAFETY_API_KEY}
+      - FOOD_SAFETY_SERVICE_ID=${FOOD_SAFETY_SERVICE_ID:-COOKRCP01}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-your_openai_api_key_here}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    volumes:
+      - ./hf_cache:/app/hf_cache
+    command: python init_data.py
+    profiles:
+      - init
+
+volumes:
+  mysql_data:
+  qdrant_data: 

@@ -156,6 +156,8 @@ const highlightIngredients = (
   const handleLogout = () => {
     setIsLoggedIn(false)
     setUsername("")
+    setUserId(null)
+    setFridgeItems([])
   }
 
   // ▶ 레시피 추천
@@ -203,7 +205,7 @@ const highlightIngredients = (
     if (userId == null) return
     setFridgeLoading(true)
     try {
-      const res = await fetch(`/api/user_ingredients/${userId}`)
+      const res = await fetch("/api/user_ingredients/" + userId)
       if (!res.ok) throw new Error()
       const data: { name: string; quantity: number }[] = await res.json()
       setFridgeItems(data.map((d) => d.name))
@@ -226,7 +228,7 @@ const highlightIngredients = (
     if (userId == null) return
     setDeletingIngredient(ingredient)
     try {
-      await fetch(`/api/user_ingredients/${userId}/${encodeURIComponent(ingredient)}`, {
+      await fetch("/api/user_ingredients/" + userId + "/" + encodeURIComponent(ingredient), {
         method: "DELETE",
       })
       setFridgeItems((prev) => prev.filter((i) => i !== ingredient))

@@ -16,8 +16,8 @@ const nextConfig = {
       {
         source: '/api/:path*',
         destination: process.env.NODE_ENV === 'production' 
-          ? 'http://backend:8000/:path*'
-          : 'http://localhost:8000/:path*',
+          ? 'http://backend:8000/api/:path*'
+          : 'http://localhost:8000/api/:path*',
       },
     ];
   },

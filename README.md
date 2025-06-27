@@ -20,6 +20,24 @@
 - **확장 가능한 아키텍처**: Docker 기반 마이크로서비스 구조
 - **모던 UI/UX**: Next.js 14 + TypeScript + Tailwind CSS
 
+## 스크린샷
+
+### 메인 홈페이지
+![메인 홈페이지](docs/images/homepage.png)
+*로그인 전 초기 화면 - 요리 검색 및 냉장고 재료 관리 기능 소개*
+
+### 로그인 화면
+![로그인 화면](docs/images/login.png)
+*사용자 로그인 입력 화면 - 이메일과 비밀번호로 간편 로그인*
+
+### 냉장고 재료 관리
+![냉장고 재료 추가](docs/images/ingredients.png)
+*냉장고 재료 추가 및 관리 화면 - 보유 재료 등록/삭제 기능*
+
+### 레시피 추천 결과
+![레시피 추천 결과](docs/images/search-results.png)
+*AI 기반 레시피 추천 결과 - 냉장고 재료와 매칭되는 재료들이 하이라이트 표시*
+
 > **상세한 설계 문서 및 프로젝트 계획**: [PLAN.md](./PLAN.md)
 
 ## 주요 기능
@@ -209,8 +227,6 @@ docker compose up -d mysql qdrant
 
 ## 관련 문서
 
-- [INTERVIEW_EXAMPLES.md](./INTERVIEW_EXAMPLES.md) - **면접 질문 답변 사례**
-- [TECHNICAL_CHALLENGES.md](./TECHNICAL_CHALLENGES.md) - **기술적 도전과 해결책** 
 - [PLAN.md](./PLAN.md) - 상세한 프로젝트 설계 및 계획 문서
 - [performance_evaluation_report.md](./performance_evaluation_report.md) - 성능 평가 보고서
 - [docker-deployment-guide.md](./docker-deployment-guide.md) - Docker 배포 가이드

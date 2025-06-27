@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 
-const BACKEND_URL = process.env.BACKEND_URL!;
+const BACKEND = process.env.BACKEND_URL || "http://127.0.0.1:8000"
 
 export async function DELETE(
   request: Request,
-  { params }: { params: { userId: string; name: string } }
+  { params }: { params: { user_id: string; name: string } }
 ) {
-  const { userId, name } = params;
+  const { user_id, name } = params;
   const res = await fetch(
-    `${BACKEND_URL}/api/user_ingredients/${userId}/${encodeURIComponent(name)}`,
+    `${BACKEND}/api/user_ingredients/${user_id}/${encodeURIComponent(name)}`,
     { method: "DELETE" }
   );
   // 204 No Content 이므로 본문은 비워서 반환

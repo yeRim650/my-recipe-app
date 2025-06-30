@@ -49,6 +49,14 @@
 - **벡터 검색**: KoSimCSE-bert 모델 기반 의미론적 검색
 - **반응형 웹**: Next.js 기반 모던 UI/UX
 
+### 성능 개선: OpenAI API 비동기 처리
+- **문제**: 기존 RAG API에서 OpenAI API 호출이 동기식으로 처리되어 블로킹 발생
+- **해결**: 
+  - `openai.OpenAI` → `openai.AsyncOpenAI`로 클라이언트 변경
+  - `generate_llm_recommendations()` 함수를 `async/await` 패턴으로 변경
+  - `/api/rag/recommend` 엔드포인트 비동기화
+- **효과**: OpenAI API 응답 대기 중에도 다른 요청들이 차단되지 않아 전체적인 응답성 크게 개선
+
 ## 기술 스택
 
 ### Backend

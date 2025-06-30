@@ -15,8 +15,8 @@ from app.db import get_session
 from app.models import Recipe, IngredientMaster, UserIngredient
 from recipe_rag_pipeline import recommend_for_user
 
-# OpenAI 클라이언트 초기화
-client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# OpenAI 클라이언트 초기화 (비동기)
+client = openai.AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 router = APIRouter(prefix="/api/rag", tags=["rag"])
 
@@ -42,7 +42,7 @@ def extract_ingredient_names(text: str) -> str:
     return ", ".join(ingredients)
 
 
-def generate_llm_recommendations(
+async def generate_llm_recommendations(
     query: str,
     user_ingredients: List[str],
     recipes: List[str],
@@ -78,7 +78,7 @@ RULES:
 """
 
     # 3) OpenAI API 호출 (새 openai-python v1.x 인터페이스)
-    resp = openai.chat.completions.create(
+    resp = await client.chat.completions.create(
         model=model,
         messages=[
             {
@@ -107,7 +107,7 @@ RULES:
 
 
 @router.post("/recommend")
-def recommend(req: RecommendRequest, session: Session = Depends(get_session)):
+async def recommend(req: RecommendRequest, session: Session = Depends(get_session)):
     try:
         # 1) RAG로 후보 레시피 조회
         recipes: List[Recipe] = recommend_for_user(
@@ -139,7 +139,7 @@ def recommend(req: RecommendRequest, session: Session = Depends(get_session)):
         ]
 
         # 4) LLM 호출 (id, name, reason 포함)
-        llm_recs = generate_llm_recommendations(
+        llm_recs = await generate_llm_recommendations(
             query=req.query,
             user_ingredients=fridge,
             recipes=simplified[:20]

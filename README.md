@@ -12,7 +12,9 @@
 
 ## 프로젝트 소개
 
-사용자가 냉장고에 있는 재료를 관리하고, AI 기반 RAG(Retrieval-Augmented Generation) 시스템을 통해 맞춤형 레시피를 추천받는 지능형 웹 서비스입니다. 
+사용자가 냉장고에 있는 재료를 관리하고, AI 기반 RAG(Retrieval-Augmented Generation) 시스템을 통해 맞춤형 레시피를 추천받는 지능형 웹 서비스입니다.
+
+FastAPI를 기반으로 AI 연동, 비동기 최적화, 구조적 라우팅 설계를 적용해 향후 Java 마이크로서비스 확장까지 고려한 백엔드 시스템으로 구현되었습니다. 
 
 > **상세한 설계 문서 및 프로젝트 계획**: [PLAN.md](./PLAN.md)
 
@@ -55,7 +57,11 @@
   - `openai.OpenAI` → `openai.AsyncOpenAI`로 클라이언트 변경
   - `generate_llm_recommendations()` 함수를 `async/await` 패턴으로 변경
   - `/api/rag/recommend` 엔드포인트 비동기화
-- **효과**: OpenAI API 응답 대기 중에도 다른 요청들이 차단되지 않아 전체적인 응답성 크게 개선
+- **효과**: OpenAI API 응답 대기 중에도 다른 요청들이 차단되지 않아 전체적인 응답성 개선
+
+### 기술 선택 배경
+Python FastAPI를 선택한 이유: AI 라이브러리 호환성, 비동기 처리 성능, 빠른 프로토타이핑  
+→ 자세한 내용: [TECHNICAL_DECISIONS.md](./TECHNICAL_DECISIONS.md)
 
 ## 기술 스택
 
@@ -237,6 +243,7 @@ docker compose up -d mysql qdrant
 ## 관련 문서
 
 - [PLAN.md](./PLAN.md) - 상세한 프로젝트 설계 및 계획 문서
+- [TECHNICAL_DECISIONS.md](./TECHNICAL_DECISIONS.md) - 기술 선택 배경 및 의사결정
 - [performance_evaluation_report.md](./performance_evaluation_report.md) - 성능 평가 보고서
 - [docker-deployment-guide.md](./docker-deployment-guide.md) - Docker 배포 가이드
 - [docker-github-actions-guide.md](./docker-github-actions-guide.md) - GitHub Actions 배포 가이드 
